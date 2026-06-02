@@ -1,36 +1,49 @@
 # Day 10 — README・テスト・コード整理・最終確認・提出準備
 
+## このプロジェクト全体の流れ
+
+```
+Day 1  → Day 2  → Day 3  → Day 4  → Day 5〜7 → Day 8 → Day 9 → [Day 10]
+Docker   paiza    Django   ログイン  タスク      カテゴリ 検索    提出
+環境構築  学習     初期設定  認証      CRUD        UI改善  ページ  ★今日
+                                                        ネーション
+```
+
+アプリの全機能が完成しました。今日は「他の人が見ても分かる・動かせる状態」に仕上げる作業です。
+
+---
+
 ## この日のゴール
 
 - README の手順通りにゼロから環境を起動できる
-- `python manage.py test` が通る
-- 最終チェックリストをすべて満たし、提出できる状態になる
+- `python manage.py test` が全件グリーンになる
+- 最終チェックリストを全項目クリアし、提出できる状態になる
+
+---
+
+## この日の前提
+
+- Day 9 の `feature/search-filter` が main にマージ済みであること
+- すべての機能が動作する状態であること
 
 ---
 
 ## 午前：README・テスト・コード整理
 
-### 1. 良い README の構成
+### 1. README とは何か、なぜ重要か
 
-README はプロジェクトの「玄関」。技術審査では **README を最初に読む**。以下の構成を基本とする。
+README は GitHub リポジトリを開いたときに最初に表示されるドキュメント。技術審査では **README を最初に読んで、書かれている手順通りに起動を試みる**。
 
-```
-# プロジェクト名
-概要（1〜2行で何をするアプリかを説明）
+起動できなければそこで審査終了。README の質が審査結果を大きく左右する。
 
-## 機能一覧
-## 使用技術
-## 開発環境の起動方法
-## 環境変数
-## テストの実行方法
-（スクリーンショット）
-```
+**良い README の条件**：
+- 前提条件（Docker Desktop が必要、など）が明記されている
+- 「このコマンドを実行する」という具体的な手順が番号付きで書かれている
+- 手順通りにやれば必ず動く（自分でゼロ起動テストして確認済み）
 
-**審査者が「使える」と判断するポイント**：`git clone` から `http://localhost:8000` にアクセスできるまで、README の手順通りにたどり着けること。手順に不備があると「ドキュメントを書けない人」という印象になる。
+### 2. Django TestCase の仕組み
 
----
-
-### 2. Django TestCase の書き方
+テストとは「コードが期待通りに動くか自動確認する仕組み」。
 
 ```python
 from django.test import TestCase
@@ -43,82 +56,54 @@ User = get_user_model()
 class TaskModelTest(TestCase):
 
     def setUp(self):
-        # テストの前に毎回実行される。テスト用データを用意する
+        # 各テストの前に実行される。テスト用データを準備する
         self.user = User.objects.create_user(
             username='testuser',
             password='testpass123'
         )
 
     def test_task_creation(self):
-        # タスクが正しく作成されるか
-        task = Task.objects.create(
-            title='テストタスク',
-            created_by=self.user
-        )
-        self.assertEqual(task.title, 'テストタスク')
-        self.assertEqual(task.status, 'todo')   # デフォルト値の確認
+        task = Task.objects.create(title='テスト', created_by=self.user)
+        self.assertEqual(task.status, 'todo')   # デフォルト値が'todo'であることを確認
 
     def test_task_str(self):
-        # __str__ が正しく動作するか
         task = Task.objects.create(title='会議準備', created_by=self.user)
-        self.assertEqual(str(task), '会議準備')
-
-    def test_status_choices(self):
-        # ステータス変更が正しく動作するか
-        task = Task.objects.create(title='テスト', created_by=self.user)
-        task.status = 'in_progress'
-        task.save()
-        task.refresh_from_db()
-        self.assertEqual(task.status, 'in_progress')
+        self.assertEqual(str(task), '会議準備')  # __str__ の動作を確認
 ```
 
-**`setUp` と `tearDown`**
-
-| メソッド | タイミング | 用途 |
-|---------|-----------|------|
-| `setUp` | 各テストメソッドの前 | テスト用データの作成 |
-| `tearDown` | 各テストメソッドの後 | クリーンアップ（通常は不要） |
-| `setUpTestData` | クラス全体で1回だけ | 変更しないデータの作成（高速化） |
-
-テストデータは各テスト終了後に自動でロールバックされる（DB に残らない）。
-
----
+**重要なポイント**：
+- テストは毎回クリーンな DB で実行される（テストデータは本物の DB に影響しない）
+- `setUp()` で作成したデータは各テストの後に自動でロールバックされる
+- テストメソッドは `test_` で始める名前にする
 
 ### 3. flake8 によるコード品質チェック
 
+flake8 は「コードが Python の規約（PEP8）に沿っているか」を自動チェックするツール。
+
 ```bash
-docker compose exec web flake8 .
+docker compose exec web flake8 . --exclude=migrations
 ```
 
-よくある警告と対処：
+よくある警告：
 
-| 警告 | 意味 | 対処 |
-|------|------|------|
-| `E501` | 1行が79文字を超えている | 行を分割する |
+| 警告コード | 意味 | 対処 |
+|-----------|------|------|
+| `E501` | 1行が79文字を超えている | 行を分割する、または `max-line-length = 119` に設定 |
 | `F401` | import したが使っていない | 不要な import を削除する |
-| `W293` | 空白行に余分なスペース | 末尾スペースを削除する |
+| `W293` | 空白行に余分なスペースがある | 末尾のスペースを削除する |
 | `E302` | 関数・クラスの前に2行空けていない | 空行を追加する |
-
-`setup.cfg` または `pyproject.toml` で除外設定できる：
-
-```ini
-# setup.cfg
-[flake8]
-max-line-length = 119
-exclude = migrations
-```
-
----
 
 ### ハンズオン（午前）
 
-#### Step 1：ブランチ作成
+#### Step 1：ブランチを作成する
 
 ```bash
+git checkout main
+git pull origin main
 git checkout -b feature/readme-tests
 ```
 
-#### Step 2：requirements.txt に flake8 を追加
+#### Step 2：requirements.txt に flake8 を追加する
 
 ```
 Django==5.0.6
@@ -127,13 +112,25 @@ python-dotenv==1.0.1
 flake8==7.0.0
 ```
 
+変更を反映するためにイメージを再ビルドする：
+
 ```bash
-docker compose build  # イメージを再ビルド
+docker compose build
 ```
 
-#### Step 3：テストを追加
+#### Step 3：setup.cfg を作成する
 
-`tasks/tests.py`：
+flake8 の設定ファイルをプロジェクトルートに作成する：
+
+```ini
+[flake8]
+max-line-length = 119
+exclude = migrations,__pycache__
+```
+
+#### Step 4：テストを追加する
+
+`tasks/tests.py` を以下の内容に書き換える：
 
 ```python
 from django.test import TestCase, Client
@@ -202,11 +199,11 @@ class TaskViewTest(TestCase):
             'title': '新しいタスク',
             'status': 'todo',
         })
-        self.assertEqual(response.status_code, 302)  # リダイレクト
+        self.assertEqual(response.status_code, 302)   # リダイレクトされる
         self.assertTrue(Task.objects.filter(title='新しいタスク').exists())
 ```
 
-テストを実行：
+テストを実行する：
 
 ```bash
 docker compose exec web python manage.py test tasks
@@ -224,19 +221,19 @@ Ran 6 tests in 0.123s
 OK
 ```
 
-#### Step 4：flake8 でコード品質チェック
+#### Step 5：flake8 でコード品質チェックをする
 
 ```bash
 docker compose exec web flake8 . --exclude=migrations
 ```
 
-警告が出た場合は修正する。
+警告が出た場合は修正する。警告ゼロになったことを確認してからコミットする。
 
-#### Step 5：README.md を作成
+#### Step 6：README.md を作成する
 
-以下のテンプレートを参考に記述する。
+`README.md` を以下の構成で書く（`taskboard/README.md` を更新）：
 
-```markdown
+````markdown
 # TaskBoard
 
 Django + PostgreSQL + Docker で構築したタスク管理アプリです。
@@ -244,11 +241,11 @@ Django + PostgreSQL + Docker で構築したタスク管理アプリです。
 ## 機能一覧
 
 - ユーザー登録・ログイン・ログアウト
-- タスクの作成・編集・削除
-- ステータス管理（未着手 / 進行中 / 完了）
+- タスクの作成・編集・削除・ステータス管理
 - カテゴリによる分類・フィルタリング
 - キーワード検索・ステータス絞り込み
 - ページネーション（10件/ページ）
+- 操作完了後のフラッシュメッセージ
 
 ## 使用技術
 
@@ -260,64 +257,64 @@ Django + PostgreSQL + Docker で構築したタスク管理アプリです。
 | Docker | - |
 | Bootstrap | 5.3 |
 
-## 開発環境の起動方法
+## 前提条件
 
-### 前提条件
+以下がインストール済みであること：
+- Docker Desktop
 
-- Docker Desktop がインストールされていること
+## 起動方法
 
-### 手順
+**1. リポジトリをクローン**
 
-1. リポジトリをクローン
+```bash
+git clone git@github.com:<username>/taskboard.git
+cd taskboard
+```
 
-   git clone https://github.com/<username>/taskboard.git
-   cd taskboard
+**2. 環境変数ファイルを作成**
 
-2. 環境変数ファイルを作成
+```bash
+cp .env.example .env
+```
 
-   .env.example をコピーして .env を作成し、必要に応じて値を変更してください。
+**3. コンテナを起動**
 
-3. コンテナを起動
+```bash
+docker compose up --build
+```
 
-   docker compose up --build
+**4. マイグレーションを実行**
 
-4. マイグレーションを実行
+```bash
+docker compose exec web python manage.py migrate
+```
 
-   docker compose exec web python manage.py migrate
+**5. 管理画面用スーパーユーザーを作成**
 
-5. スーパーユーザーを作成（管理画面用）
+```bash
+docker compose exec web python manage.py createsuperuser
+```
 
-   docker compose exec web python manage.py createsuperuser
+**6. ブラウザで開く**
 
-6. ブラウザで開く
+http://localhost:8000
 
-   http://localhost:8000
+## テストの実行
+
+```bash
+docker compose exec web python manage.py test
+```
 
 ## 環境変数
 
-| 変数名 | 説明 | 例 |
-|--------|------|-----|
-| SECRET_KEY | Django の秘密鍵 | - |
-| DEBUG | デバッグモード | True |
-| DB_NAME | DB 名 | taskboard |
-| DB_USER | DB ユーザー | taskboard_user |
-| DB_PASSWORD | DB パスワード | password |
-| DB_HOST | DB ホスト | db |
-| DB_PORT | DB ポート | 5432 |
-
-## テストの実行方法
-
-   docker compose exec web python manage.py test
+`.env.example` を参照してください。
 
 ## 開発フロー
 
-このプロジェクトは GitHub Flow で開発しています。
-各機能は feature ブランチで開発し、PR を経由して main にマージしています。
-```
+GitHub Flow を採用しています。機能ごとに `feature/xxx` ブランチを作成し、PR を経由して main にマージしています。
+````
 
-#### Step 6：.env.example を最新化
-
-現在の設定に合わせて更新する：
+#### Step 7：.env.example を最新化する
 
 ```
 SECRET_KEY=your-secret-key-here
@@ -329,11 +326,11 @@ DB_HOST=db
 DB_PORT=5432
 ```
 
-#### Step 7：PR 作成・マージ
+#### Step 8：コミットしてマージする
 
 ```bash
 git add .
-git commit -m "docs: README追加・テスト追加・コード品質チェック"
+git commit -m "docs: READMEとテストを追加、flake8警告を解消"
 git push origin feature/readme-tests
 ```
 
@@ -343,54 +340,56 @@ git push origin feature/readme-tests
 
 ### 4. ゼロ起動テストとは
 
-「他人が自分のリポジトリを初めてクローンしたとき、README の手順だけで起動できるか」を自分で確認する。
+「他の人が自分のリポジトリを初めてクローンして、README 通りに起動できるか」を自分で確認する作業。
 
-**なぜ重要か**：技術審査担当者は README を見ながら実際に起動しようとする。起動できなければ審査終了。
-
----
+**なぜ必要か**：自分の環境には既に Docker イメージや DB データが残っているため、自分の環境では動いても「初めての人」の環境では動かないことがある。別ディレクトリにクローンすることで「初めての人」の状態を再現する。
 
 ### ハンズオン（午後）
 
-#### Step 8：不要ブランチを削除
+#### Step 9：不要ブランチを削除する
 
 ```bash
-# ローカルのマージ済みブランチを確認
+# マージ済みのローカルブランチを確認
 git branch --merged main
 
 # 削除（main と現在のブランチ以外）
 git branch -d feature/docker-setup
 git branch -d feature/django-init
-# ... 必要に応じて繰り返す
+git branch -d feature/user-auth
+git branch -d feature/task-crud
+git branch -d feature/category
+git branch -d feature/search-filter
+git branch -d feature/readme-tests
 ```
 
-GitHub のリモートブランチも削除（PR マージ時に自動削除の設定をしている場合は不要）。
-
-#### Step 9：ゼロ起動テスト
+#### Step 10：ゼロ起動テストを実行する
 
 ```bash
-# 別ディレクトリにクローン
-cd /tmp
-git clone https://github.com/<username>/taskboard.git taskboard-test
+# 別ディレクトリにクローン（/tmp は Windows だと C:\temp など）
+cd C:\temp
+git clone git@github.com:<username>/taskboard.git taskboard-test
 cd taskboard-test
 
-# README の手順通りに実行
-cp .env.example .env
+# README の手順通りに実行する
+copy .env.example .env
 docker compose up --build -d
 docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
 ```
 
-ブラウザで `http://localhost:8000` を開き、動作を確認する。確認後はクリーンアップ：
+ブラウザで `http://localhost:8000` を開いて動作確認する。
+
+完了後はクリーンアップする：
 
 ```bash
 docker compose down -v
 cd ..
-rm -rf taskboard-test
+rm -rf taskboard-test   # Windowsは del /s /q taskboard-test
 ```
 
-#### Step 10：最終チェックリスト
+#### Step 11：最終チェックリスト
 
-すべての項目を確認してから提出する。
+提出前にすべての項目を確認する。
 
 - [ ] `docker compose up` で起動できる
 - [ ] `http://localhost:8000` でアプリにアクセスできる
@@ -398,19 +397,11 @@ rm -rf taskboard-test
 - [ ] タスクの作成・編集・削除・ステータス変更が動作する
 - [ ] キーワード検索・ステータスフィルタが動作する
 - [ ] カテゴリ作成・フィルタリングが動作する
-- [ ] GitHub に機能ごとのブランチ・PR が残っている
-- [ ] README に起動手順が書かれている
+- [ ] タスクが10件以上あるときページネーションが表示される
+- [ ] GitHub に機能ごとのブランチ・PR が残っている（Closed PR 一覧で確認）
+- [ ] README に起動手順が書かれている（ゼロ起動テストで確認済み）
 - [ ] `.env` が `.gitignore` されており、`.env.example` がある
 - [ ] `python manage.py test` が全件通る
-- [ ] PR のコメント・説明が適切に記載されている
-
-#### Step 11：GitHub リポジトリの最終確認
-
-GitHub を開いて以下を確認する：
-
-1. **Insights > Network**：ブランチの分岐・マージが確認できる
-2. **Pull requests（Closed）**：各機能の PR 一覧が残っている
-3. **Actions**（設定している場合）：CI が通っている
 
 ---
 
@@ -418,9 +409,9 @@ GitHub を開いて以下を確認する：
 
 | エラー | 原因 | 対処 |
 |--------|------|------|
-| テストで `AssertionError: 302 != 200` | ログインが必要なページにログインせずアクセス | `setUp` で `self.client.login()` を呼ぶ |
+| テストで `AssertionError: 302 != 200` | ログインが必要なページにログインせずアクセス | `setUp` で `self.client.login()` を呼んでいるか確認 |
 | `django.db.utils.ProgrammingError` | テスト DB のマイグレーション失敗 | `python manage.py migrate` を実行してから再テスト |
-| ゼロ起動テストで `migrate` エラー | `.env` の DB 設定が間違っている | `.env.example` の内容が正確か確認 |
+| ゼロ起動テストで migrate エラー | `.env` の DB 設定が間違っている | `.env.example` の内容を `README` と一致させる |
 | flake8 で `E501` が大量に出る | 行が長い | `setup.cfg` で `max-line-length = 119` に設定する |
 
 ---
@@ -431,7 +422,7 @@ GitHub を開いて以下を確認する：
 
 ### いつブランチを切るか
 
-**タイミング**：Day 9 の `feature/search-filter` がマージされた後、`main` から `feature/readme-tests` を切る。
+Day 9 のマージ後の `main` から `feature/readme-tests` を切る。
 
 **理由**：README・テスト・コード整理は「機能追加」ではなく「品質担保とドキュメント化」。機能実装のブランチと分けることで、「この PR は機能追加ゼロ、品質改善のみ」という意図が PR の差分から一目で分かる。
 
@@ -439,9 +430,9 @@ GitHub を開いて以下を確認する：
 
 | タイミング | コミットの意味 | 理由 |
 |-----------|--------------|------|
-| テストが通ったとき | テストコード追加完了 | `python manage.py test` が通った状態でコミット。テストは「通った状態」でコミットするのが原則 |
-| flake8 の警告をすべて解消したとき | コード品質整理完了 | 警告が残ったままコミットすると「修正途中」の状態が履歴に残る |
-| README を書き終えたとき | ドキュメント完成 | README は1つのドキュメントとして完成したときにコミット |
+| テストが全件通ったとき | テストコード追加完了 | テストは「通った状態」でコミットするのが原則。失敗している状態のテストをコミットしない |
+| flake8 の警告をゼロにしたとき | コード品質整理完了 | 警告が残ったままコミットすると「修正途中」の状態が履歴に残る |
+| README が完成したとき | ドキュメント完成 | ゼロ起動テストで動作を確認してからコミットする |
 
 ### コミットメッセージ例
 
@@ -453,20 +444,15 @@ git commit -m "docs: READMEに起動手順と機能一覧を追加"
 
 ### いつ PR をマージするか
 
-**条件**：以下をすべて満たすこと。
-1. `python manage.py test` が全件グリーン
-2. README の手順通りに別ディレクトリでゼロ起動テストが通る
-3. 最終チェックリストが全項目クリア
+**条件**：ゼロ起動テストが通り、最終チェックリストが全項目クリアであること。
 
-**理由**：これが最後の PR。ここでマージされた `main` が提出物になる。ゼロ起動テストで「README の手順が正しい」ことを自分で確認してからマージしないと、審査担当者が起動できない提出物になってしまう。マージ前の最終確認が最も重要なタイミング。
+**理由**：これが最後の PR。ここでマージされた `main` が提出物になる。ゼロ起動テストで「README の手順が正しい」ことを自分で確認してからマージする。
 
 ---
 
-## GitHub 履歴の最終チェック
+## GitHub 履歴の最終確認
 
-提出前に GitHub の以下を確認する。
-
-### Closed PR の一覧（期待される構成）
+GitHub の Closed PR 一覧を開いて、以下の構成が揃っていることを確認する。
 
 | PR タイトル | ブランチ | 対応日 |
 |-----------|---------|--------|
@@ -478,4 +464,4 @@ git commit -m "docs: READMEに起動手順と機能一覧を追加"
 | `feat: 検索・フィルタリング・ページネーションを実装` | `feature/search-filter` | Day 9 |
 | `docs: READMEとテストを追加` | `feature/readme-tests` | Day 10 |
 
-この構成が揃っていると「機能単位でブランチを切り、完成したらマージする」GitHub Flow が実践できていることを審査担当者にアピールできる。
+この PR 一覧が「機能単位でブランチを切り、完成したらマージした証跡」として審査担当者に示す GitHub Flow の実践例になる。

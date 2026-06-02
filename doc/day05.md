@@ -1,69 +1,123 @@
 # Day 5 — タスクモデル・マイグレーション
 
-## この日のゴール
+## このプロジェクト全体の流れ
 
-- `Task` モデルと `Category` モデルを作成し、マイグレーションが成功する
-- Django 管理画面からタスクの CRUD が動作する
-- Django シェルで ORM クエリを操作できる
+```
+Day 1  → Day 2  → Day 3  → Day 4  → [Day 5] → Day 6 → Day 7 → Day 8 → Day 9 → Day 10
+Docker   paiza    Django   ログイン   タスク     一覧    CRUD    カテゴリ 検索    提出
+環境構築  学習     初期設定  認証       モデル     詳細
+                                      ★今日
+```
+
+Day 4 まで「誰が使うか（ユーザー認証）」を作りました。今日からは「何を管理するか（タスクデータ）」を作ります。
+
+今日はデータの「設計図（モデル）」と「DB テーブルの作成（マイグレーション）」に集中します。画面はまだ作りません。
 
 ---
 
-## 1. Django のモデルとは
+## この日のゴール
 
-モデルは DB のテーブルを Python クラスとして表現したもの。
+- `Task` モデルと `Category` モデルを作成し、`migrate` が成功する
+- Django 管理画面からタスクの作成・編集・削除ができる
+- Django シェルで ORM クエリを実行できる
 
-```python
-class Task(models.Model):
-    title = models.CharField(max_length=200)   # VARCHAR(200)
-    created_at = models.DateTimeField(auto_now_add=True)  # TIMESTAMP
+---
+
+## この日の前提
+
+- Day 4 の `feature/user-auth` が main にマージ済みであること
+- ログイン・ログアウトが動作する状態であること
+
+---
+
+## 1. データとモデルの全体像
+
+### このアプリに必要なデータを整理する
+
+```
+[ユーザー]
+  id, username, email, password
+  （Day 3 で作成済み）
+
+[カテゴリ]
+  id, name, 作成者（どのユーザーが作ったか）
+
+[タスク]
+  id, タイトル, 説明, ステータス, 期限,
+  作成者（ユーザーと紐づく）, 担当者（ユーザーと紐づく）, カテゴリ（カテゴリと紐づく）
+  作成日時, 更新日時
 ```
 
-この1クラスが1テーブルに対応する。フィールド定義 = カラム定義。
+### DB テーブルのイメージ
+
+```
+usersテーブル          categoriesテーブル         tasksテーブル
+┌────┬────────┐    ┌────┬──────┬──────────┐    ┌────┬────────────┬────────┬──────┬──────────┐
+│ id │username│    │ id │ name │created_by│    │ id │   title    │ status │cat_id│created_by│
+├────┼────────┤    ├────┼──────┼──────────┤    ├────┼────────────┼────────┼──────┼──────────┤
+│  1 │ taro   │◄───│  1 │ 仕事 │    1     │◄───│  1 │ 資料作成   │  todo  │  1   │    1     │
+│  2 │ hanako │    │  2 │ 趣味 │    2     │    │  2 │ 会議準備   │  done  │  1   │    1     │
+└────┴────────┘    └────┴──────┴──────────┘    └────┴────────────┴────────┴──────┴──────────┘
+```
+
+矢印（`◄───`）が ForeignKey（外部キー）の参照関係。
+
+### モデルとは
+
+「テーブルの設計図を Python クラスで表現したもの」。
+
+```python
+class Task(models.Model):       # クラス定義 = テーブル定義
+    title = models.CharField(max_length=200)   # カラム定義
+    status = models.CharField(...)
+    created_at = models.DateTimeField(auto_now_add=True)
+```
+
+このクラスを書くと、Django が自動で SQL（`CREATE TABLE tasks ...`）を生成してくれる。
 
 ---
 
 ## 2. 主要なフィールドの種類
 
-| フィールド | DB 型 | 用途 |
-|-----------|-------|------|
-| `CharField(max_length=N)` | VARCHAR | 短いテキスト |
-| `TextField` | TEXT | 長いテキスト |
-| `IntegerField` | INT | 整数 |
-| `DateField` | DATE | 日付 |
-| `DateTimeField` | DATETIME | 日時 |
-| `BooleanField` | BOOLEAN | True/False |
+| フィールド | DB の型 | 主な用途 |
+|-----------|---------|---------|
+| `CharField(max_length=N)` | VARCHAR | 短いテキスト（タイトル、名前など） |
+| `TextField` | TEXT | 長いテキスト（説明文など） |
+| `DateField` | DATE | 日付（期限など） |
+| `DateTimeField` | DATETIME | 日時（作成日時など） |
 | `ForeignKey(Model, on_delete)` | INT + 外部キー | 他テーブルへの参照 |
 
 **よく使うオプション**
 
 ```python
-null=True        # DB に NULL を許可
-blank=True       # フォームで空欄を許可（null と一緒に使うことが多い）
-auto_now_add=True  # レコード作成時に現在時刻を自動セット（更新しない）
-auto_now=True      # レコード更新時に現在時刻を自動セット
-default=値       # デフォルト値を設定
+null=True        # DB に NULL を許可する（省略可能なフィールド）
+blank=True       # フォームで空欄を許可する（null と組み合わせて使う）
+default=値       # 値が指定されなかったときのデフォルト値
+auto_now_add=True  # レコード作成時に現在時刻を自動セット（変更不可）
+auto_now=True      # レコード更新時に現在時刻を自動更新
 ```
 
 ---
 
 ## 3. ForeignKey と on_delete
 
+ForeignKey は「このテーブルのカラムは、別のテーブルの行を指す」という設定。
+
 ```python
 created_by = models.ForeignKey(
-    settings.AUTH_USER_MODEL,  # 参照先のモデル
-    on_delete=models.CASCADE,  # 参照先が削除されたときの動作
-    related_name='tasks'       # 逆参照のための名前
+    settings.AUTH_USER_MODEL,  # 参照先のモデル（ユーザーモデル）
+    on_delete=models.CASCADE,  # 参照先（ユーザー）が削除されたときの動作
+    related_name='created_tasks'  # user.created_tasks.all() で逆引きできるようになる
 )
 ```
 
-**on_delete の選択肢**
+**on_delete の選択肢と使い分け**
 
-| オプション | 動作 |
-|-----------|------|
-| `CASCADE` | 参照先が削除されたら一緒に削除 |
-| `SET_NULL` | 参照先が削除されたら NULL にする（`null=True` も必要） |
-| `PROTECT` | 参照先が削除されないよう保護（エラーを発生させる） |
-| `SET_DEFAULT` | 参照先が削除されたらデフォルト値にする |
+| オプション | 動作 | 使い所 |
+|-----------|------|--------|
+| `CASCADE` | 参照先が削除されたら一緒に削除 | ユーザーが削除されたらそのタスクも削除したい場合 |
+| `SET_NULL` | 参照先が削除されたら NULL にする | カテゴリが削除されてもタスクは残したい場合 |
+| `PROTECT` | 参照先が削除されないよう保護する | 参照されているデータは消させたくない場合 |
 
 ---
 
@@ -72,7 +126,7 @@ created_by = models.ForeignKey(
 ```python
 class Task(models.Model):
     STATUS_CHOICES = [
-        ('todo', '未着手'),
+        ('todo', '未着手'),         # ('DBに保存する値', '画面に表示する値')
         ('in_progress', '進行中'),
         ('done', '完了'),
     ]
@@ -85,25 +139,25 @@ class Task(models.Model):
 
 `choices` を設定すると：
 - 管理画面でセレクトボックスになる
-- `task.get_status_display()` で表示名（「未着手」など）を取得できる
+- `task.get_status_display()` で「未着手」「進行中」などの表示名を取得できる
 
 ---
 
 ## 5. マイグレーションの仕組み
 
 ```
-モデル定義（models.py）
-       ↓
-python manage.py makemigrations  → migrations/0001_initial.py（差分ファイルを生成）
-       ↓
-python manage.py migrate         → DB にテーブルを作成
+models.py（Pythonでの設計図）
+         ↓
+python manage.py makemigrations   → migrations/0001_initial.py が生成される
+（差分を検出して「変更指示書」を作る）
+         ↓
+python manage.py migrate          → DB に実際にテーブルが作られる
+（変更指示書を実行する）
 ```
 
-**重要なルール**
-
-- `models.py` を変更したら必ず `makemigrations` → `migrate` をセットで実行する
-- `migrations/` ディレクトリのファイルは Git にコミットする（チーム開発で差分共有が必要）
-- 本番環境では `migrate` を手動実行してテーブルを更新する
+**大切なルール**
+- `models.py` を変更したら必ず `makemigrations` → `migrate` の順で実行する
+- `migrations/` フォルダ内のファイルは Git にコミットする（チーム全員が同じ DB 構造にするため）
 
 ---
 
@@ -117,14 +171,15 @@ Task.objects.all()
 Task.objects.filter(status='todo')
 Task.objects.filter(status='todo', created_by=user)
 
-# 1件取得（存在しない場合は DoesNotExist 例外）
+# 1件取得（存在しない場合は DoesNotExist 例外が発生）
 Task.objects.get(pk=1)
 
 # 作成
-task = Task.objects.create(title='テスト', created_by=user)
+Task.objects.create(title='テスト', created_by=user)
 
 # 更新
-task.title = '更新後'
+task = Task.objects.get(pk=1)
+task.title = '更新後のタイトル'
 task.save()
 
 # 削除
@@ -133,23 +188,25 @@ task.delete()
 # 件数
 Task.objects.filter(status='done').count()
 
-# 順序指定
-Task.objects.all().order_by('-created_at')  # 作成日時の降順
+# 並び順指定（-をつけると降順）
+Task.objects.all().order_by('-created_at')
 ```
 
 ---
 
 ## 7. ハンズオン
 
-### Step 1：ブランチ作成
+### Step 1：ブランチを作成する
 
 ```bash
+git checkout main
+git pull origin main
 git checkout -b feature/task-crud
 ```
 
-### Step 2：Task・Category モデルを作成
+### Step 2：Task・Category モデルを作成する
 
-`tasks/models.py`：
+`tasks/models.py` を以下の内容に書き換える：
 
 ```python
 from django.conf import settings
@@ -205,33 +262,23 @@ class Task(models.Model):
         return self.title
 
     class Meta:
-        ordering = ['-created_at']  # デフォルトの並び順
+        ordering = ['-created_at']  # デフォルトの並び順：作成日時の降順
 ```
 
-> **なぜ `__str__` を実装するのか**：管理画面やシェルでオブジェクトを表示したときに意味のある文字列が表示されるようにするため。
+> **なぜ `__str__` を実装するのか**：管理画面やデバッグ時に `<Task object (1)>` ではなくタイトルが表示されるようになる。実務では `__str__` の実装は必須とされることが多い。
 
-### Step 3：settings.py に tasks を追加
-
-```python
-INSTALLED_APPS = [
-    ...
-    'accounts',
-    'tasks',
-]
-```
-
-### Step 4：マイグレーション実行
+### Step 3：マイグレーションを実行する
 
 ```bash
 docker compose exec web python manage.py makemigrations tasks
 docker compose exec web python manage.py migrate
 ```
 
-`migrations/0001_initial.py` が生成されたことを確認する。
+成功すると `tasks/migrations/0001_initial.py` が生成される。このファイルを Git にコミットする。
 
-### Step 5：管理画面に登録
+### Step 4：管理画面に登録する
 
-`tasks/admin.py`：
+`tasks/admin.py` を以下の内容に書き換える：
 
 ```python
 from django.contrib import admin
@@ -250,27 +297,30 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = ('name', 'created_by')
 ```
 
-管理画面（`http://localhost:8000/admin/`）にログインしてタスクを作成・編集・削除できることを確認。
+管理画面（`http://localhost:8000/admin/`）にスーパーユーザーでログインし、以下を確認する：
+- 「Categories」からカテゴリを作成できる
+- 「Tasks」からタスクを作成・編集・削除できる
 
-### Step 6：Django シェルで ORM を練習
+### Step 5：Django シェルで ORM を練習する
 
 ```bash
 docker compose exec web python manage.py shell
 ```
 
-シェルで以下を試す：
+シェルが起動したら以下を1行ずつ試す：
 
 ```python
 from tasks.models import Task, Category
 from accounts.models import CustomUser
 
-# ユーザーを取得
+# ユーザーを取得する
 user = CustomUser.objects.first()
 
-# カテゴリを作成
+# カテゴリを作成する
 cat = Category.objects.create(name='仕事', created_by=user)
+print(cat)  # → 仕事
 
-# タスクを作成
+# タスクを作成する
 task = Task.objects.create(
     title='ミーティング準備',
     description='資料を作成する',
@@ -279,25 +329,33 @@ task = Task.objects.create(
     category=cat
 )
 
-# 一覧取得
+# 一覧取得する
 Task.objects.all()
 
-# フィルタ
+# ステータスでフィルタする
 Task.objects.filter(status='todo')
 
-# 関連オブジェクトの取得（ForeignKey の逆参照）
+# ForeignKey の逆参照（user のタスク一覧）
 user.created_tasks.all()
-cat.tasks.all()
 
-# ステータスを更新
+# 表示名を取得する
+task.get_status_display()   # → '未着手'
+
+# ステータスを更新する
 task.status = 'in_progress'
 task.save()
+task.refresh_from_db()      # DB から最新の値を取得しなおす
+print(task.status)          # → 'in_progress'
 
-# 表示名を取得
-task.get_status_display()  # → '進行中'
+# 終了
+exit()
+```
 
-# 削除
-task.delete()
+### Step 6：コミットしておく
+
+```bash
+git add tasks/
+git commit -m "feat: TaskモデルとCategoryモデルを追加"
 ```
 
 ---
@@ -306,10 +364,10 @@ task.delete()
 
 | エラー | 原因 | 対処 |
 |--------|------|------|
-| `no such table` | マイグレーション未実行 | `migrate` を実行 |
-| `column already exists` | マイグレーションの重複 | `migrations/` 内の不要ファイルを削除して `makemigrations` からやり直す |
-| `django.db.utils.IntegrityError` | NOT NULL カラムに NULL を入れようとした | モデルの `null=True` か `default` を確認 |
-| `RelatedObjectDoesNotExist` | ForeignKey 先が存在しない | 先に関連オブジェクトを作成する |
+| `no such table` | マイグレーション未実行 | `python manage.py migrate` を実行する |
+| `relation already exists` | マイグレーションが重複している | `migrations/` 内の不要ファイルを確認する |
+| `django.db.utils.IntegrityError` | NOT NULL カラムに NULL を入れようとした | モデルの `null=True` または `default` を確認する |
+| `tasks` が管理画面に表示されない | `INSTALLED_APPS` に `'tasks'` がない | `settings.py` を確認する |
 
 ---
 
@@ -319,29 +377,27 @@ task.delete()
 
 ### いつブランチを切るか
 
-**タイミング**：Day 4 の認証 PR がマージされた後、`main` から `feature/task-crud` を切る。
+Day 4 のマージ後の `main` から `feature/task-crud` を切る。このブランチは Day 7 まで継続して使う。
 
-**理由**：Task モデルは `ForeignKey(settings.AUTH_USER_MODEL)` で CustomUser を参照する。認証機能がマージされた `main` をベースにしないと、ローカルの `accounts` アプリが存在しない状態でモデルを作ることになり、`makemigrations` が失敗する可能性がある。
+**理由**：Task モデルは `ForeignKey(settings.AUTH_USER_MODEL)` で CustomUser を参照する。認証機能がマージされた `main` を起点にしないと、`accounts` アプリが存在しない状態でマイグレーションを実行することになる。
 
 ### いつコミットするか
 
 | タイミング | コミットの意味 | 理由 |
 |-----------|--------------|------|
-| `migrate` が成功したとき | モデル定義とマイグレーション完了 | migration ファイルは必ずモデル変更とセットでコミットする。「モデルを変えた」「migration を実行した」を別コミットにしない |
-| 管理画面からタスクの作成・編集・削除が動いたとき | モデル動作確認完了 | Django shell だけでなく管理画面での確認もこの時点で済ませておく |
+| `migrate` 成功・管理画面でタスク作成確認 | モデル定義とマイグレーション完了 | migration ファイルはモデル変更とセットでコミットする。別々にコミットすると「モデルと migration がずれた状態」が履歴に残る |
 
 ### コミットメッセージ例
 
 ```bash
-# モデルと migration をセットでコミット
 git commit -m "feat: TaskモデルとCategoryモデルを追加"
-
-# 管理画面の設定を追加したとき
 git commit -m "chore: TaskとCategoryをDjango管理画面に登録"
 ```
 
 ### いつ PR をマージするか
 
-**条件**：`python manage.py migrate` が成功し、管理画面からタスクの CRUD が動作すること。
+**Day 5 の時点ではマージしない。**
 
-**理由**：`feature/task-crud` ブランチは Day 6・7 でも継続使用する（ビュー・テンプレートを追加していく）。このため「モデルが確実に動く」状態でコミットが積み重なっていることが重要。ただし **Day 5 の時点では PR はマージせず、ブランチを継続して Day 7 まで使う**。マージするのはタスク CRUD がすべて完成した Day 7 の終わりにする。
+`feature/task-crud` ブランチは Day 6（一覧・詳細）と Day 7（CRUD）も同じブランチで続ける。タスク機能全体が完成した Day 7 の終わりにまとめてマージする。
+
+**理由**：「モデルだけある（画面がない）」状態を main に入れると、main の状態が「機能として使えないが DB 構造だけ変わった」という中途半端な状態になる。

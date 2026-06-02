@@ -1,60 +1,187 @@
 # Day 3 — Django プロジェクト初期設定 ＋ ユーザー認証（登録）
 
+## このプロジェクト全体の流れ
+
+```
+Day 1  → Day 2  → [Day 3]  → Day 4  → Day 5〜7 → Day 8 → Day 9 → Day 10
+Docker   paiza    Django     ログイン  タスク      カテゴリ 検索    提出
+環境構築  学習     初期設定    認証      CRUD
+                  +認証登録
+                   ★今日
+```
+
+Day 1 で「動く箱（環境）」を作り、Day 2 で Django の概念を学びました。今日は**その箱の中に Django アプリを作り込む**最初の日です。
+
+午前は「プロジェクトの骨格と DB 接続」、午後は「ユーザー登録機能」を実装します。
+
+---
+
 ## この日のゴール
 
-- `docker compose exec web python manage.py migrate` が成功し、`http://localhost:8000` でウェルカムページが表示される
-- ユーザー登録フォームからアカウントが作成でき、DB に保存される
+- `http://localhost:8000` で Django のウェルカムページが表示される
+- `http://localhost:8000/accounts/register/` からユーザー登録ができ、DB に保存される
+
+---
+
+## この日の前提
+
+- Day 1 の `feature/docker-setup` が main にマージ済みであること
+- `docker compose up` で web と db が起動する状態であること
 
 ---
 
 ## 午前：Django プロジェクト初期設定
 
-### 1. Django プロジェクトの構造
+### 1. Django の全体構造を理解する
 
-`django-admin startproject config .` を実行すると以下が生成される。
+まず Django アプリ全体の構造を把握してから、個別の設定に入る。
 
 ```
-taskboard/
-├── manage.py          # コマンドラインツール（runserver, migrate など）
-└── config/
-    ├── __init__.py
-    ├── settings.py    # プロジェクト全体の設定
-    ├── urls.py        # ルートURL設定
-    ├── wsgi.py        # 本番デプロイ用
-    └── asgi.py        # 非同期対応（今回は使わない）
+ブラウザ
+  │ URL（/tasks/ など）
+  ▼
+urls.py（ルーター）：URL を見てどのビューに渡すかを決める
+  │
+  ▼
+views.py（処理）：データを取得して、テンプレートに渡す
+  │           ↕
+  │         models.py（DB とのやりとり）
+  │           ↕
+  │         PostgreSQL（データベース）
+  ▼
+templates/（HTML）：データを受け取って画面を作る
+  │
+  ▼
+ブラウザにレスポンスを返す
 ```
 
-`manage.py` はプロジェクトの起点。以降のコマンドはすべて `python manage.py <コマンド>` の形式。
+この「URL → View → Model → Template」の流れを **MVT（Model-View-Template）** と呼ぶ。これが Django の中心的な考え方。
 
-### 2. settings.py の重要な設定
+### 2. プロジェクトとアプリの違い
+
+Django には「プロジェクト」と「アプリ」という2つの単位がある。
+
+| 単位 | 役割 | 例 |
+|------|------|-----|
+| **プロジェクト** | アプリ全体の設定をまとめる箱 | `config/settings.py`、`config/urls.py` |
+| **アプリ** | 機能ごとに分けたモジュール | `accounts`（認証）、`tasks`（タスク管理） |
+
+```
+taskboard/（プロジェクトルート）
+├── config/（プロジェクト設定）
+│   ├── settings.py   ← DB 設定、インストールアプリの一覧など
+│   └── urls.py       ← ルートURL設定
+├── accounts/（アプリ：認証機能）
+├── tasks/（アプリ：タスク機能）
+└── templates/（HTMLテンプレート）
+```
+
+### 3. settings.py の主要な設定項目
+
+`settings.py` はプロジェクト全体の設定ファイル。最初に理解しておくべき項目：
 
 ```python
-# インストール済みアプリの一覧。自分で作ったアプリはここに追加する
+# インストール済みアプリの一覧
+# 自分で作ったアプリはここに追加しないと認識されない
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
+    'django.contrib.admin',    # 管理画面
+    'django.contrib.auth',     # 認証機能
     'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    # 自作アプリはここに追加
+    'django.contrib.sessions', # セッション管理
+    'django.contrib.messages', # フラッシュメッセージ
+    'django.contrib.staticfiles', # CSS・画像ファイル
 ]
 
-# DB の接続設定（デフォルトは SQLite）
+# DB の接続先
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
+        'ENGINE': 'django.db.backends.sqlite3',  # デフォルトは SQLite
         'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+# テンプレートの検索場所
+TEMPLATES = [
+    {
+        'DIRS': [],  # ここにテンプレートのディレクトリを追加する
+        ...
+    }
+]
+```
+
+### 4. PostgreSQL への接続設定
+
+デフォルトは SQLite（1ファイルの簡易 DB）だが、本番環境に近い PostgreSQL に切り替える。
+
+切り替えに必要な変更：
+
+```python
+# settings.py の DATABASES を差し替える
+import os
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'taskboard'),
+        'USER': os.environ.get('DB_USER', 'taskboard_user'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'password'),
+        'HOST': os.environ.get('DB_HOST', 'db'),   # docker-compose のサービス名
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 ```
 
-### 3. PostgreSQL に接続する設定
+**なぜ `os.environ.get` を使うのか**：パスワードなどをコードに直書きすると GitHub にアップしたときに全世界に公開されてしまう。`.env` ファイルから読み込むことでシークレットを守る。
+
+### 5. ハンズオン（午前）
+
+#### Step 1：ブランチを作成する
+
+```bash
+git checkout main        # まず main に戻る
+git pull origin main     # Day 1 のマージ後の最新を取得
+git checkout -b feature/django-init
+```
+
+#### Step 2：Django プロジェクトを作成する
+
+```bash
+docker compose exec web django-admin startproject config .
+```
+
+このコマンドを実行すると以下のファイルが生成される：
+
+```
+taskboard/
+├── manage.py          ← これから頻繁に使うコマンドラインツール
+└── config/
+    ├── __init__.py
+    ├── settings.py    ← ここを編集していく
+    ├── urls.py
+    ├── wsgi.py
+    └── asgi.py
+```
+
+#### Step 3：settings.py を編集する
+
+`config/settings.py` の先頭に以下を追加する（`from pathlib import Path` の下の行）：
 
 ```python
-# settings.py の DATABASES を以下に差し替える
 import os
+from dotenv import load_dotenv
+load_dotenv()
+```
 
+`SECRET_KEY` を環境変数から読み込む形に変更：
+
+```python
+SECRET_KEY = os.environ.get('SECRET_KEY')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+```
+
+`DATABASES` を PostgreSQL 用に書き換える：
+
+```python
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -67,78 +194,49 @@ DATABASES = {
 }
 ```
 
-**なぜ `os.environ.get` を使うのか**：設定値をコードにハードコードせず、`.env` から読み込むため。パスワードを GitHub にコミットしてしまう事故を防ぐ。
-
-### 4. .env の設定と python-dotenv の使い方
-
-`.env` ファイルに実際の設定値を書く。
-
-```
-SECRET_KEY=django-insecure-your-secret-key
-DEBUG=True
-DB_NAME=taskboard
-DB_USER=taskboard_user
-DB_PASSWORD=password
-DB_HOST=db
-DB_PORT=5432
-```
-
-`settings.py` の先頭で読み込む。
-
-```python
-from dotenv import load_dotenv
-load_dotenv()
-```
-
-### 5. ハンズオン（午前）
-
-#### Step 1：ブランチ作成
-
-```bash
-git checkout -b feature/django-init
-```
-
-#### Step 2：Django プロジェクト作成
-
-```bash
-docker compose exec web django-admin startproject config .
-```
-
-実行後、`manage.py` と `config/` ディレクトリが生成される。
-
-#### Step 3：settings.py を編集
-
-`config/settings.py` の先頭に追加：
-
-```python
-import os
-from dotenv import load_dotenv
-load_dotenv()
-```
-
-`SECRET_KEY` を環境変数から読み込む：
-
-```python
-SECRET_KEY = os.environ.get('SECRET_KEY')
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-```
-
-`DATABASES` を PostgreSQL 用に変更（前述の設定を貼り付ける）。
-
-`LANGUAGE_CODE` と `TIME_ZONE` を日本語設定に変更：
+日本語・タイムゾーン設定に変更：
 
 ```python
 LANGUAGE_CODE = 'ja'
 TIME_ZONE = 'Asia/Tokyo'
 ```
 
-#### Step 4：初期マイグレーション
+`TEMPLATES` の `DIRS` に templates フォルダを追加：
+
+```python
+TEMPLATES = [
+    {
+        ...
+        'DIRS': [BASE_DIR / 'templates'],
+        ...
+    }
+]
+```
+
+#### Step 4：tasks アプリを作成する
+
+```bash
+docker compose exec web python manage.py startapp tasks
+```
+
+`config/settings.py` の `INSTALLED_APPS` に追加：
+
+```python
+INSTALLED_APPS = [
+    ...
+    'tasks',
+]
+```
+
+#### Step 5：初期マイグレーションを実行する
+
+マイグレーションとは「モデルの定義を DB のテーブルに反映する作業」。最初の実行では Django 組み込みのテーブル（ユーザー管理など）が作られる。
 
 ```bash
 docker compose exec web python manage.py migrate
 ```
 
-成功すると以下のような出力が表示される。
+成功すると以下のような出力が表示される：
 
 ```
 Operations to perform:
@@ -149,19 +247,19 @@ Running migrations:
   ...
 ```
 
-#### Step 5：起動確認
+#### Step 6：起動確認
 
 ```bash
 docker compose up
 ```
 
-ブラウザで `http://localhost:8000` を開き、Django のロケットマークが表示されれば成功。
+ブラウザで `http://localhost:8000` を開き、Django のロケットマーク（ウェルカムページ）が表示されれば成功。
 
-#### Step 6：PR 作成・マージ
+#### Step 7：PR を作成してマージする
 
 ```bash
-git add config/ manage.py .env.example
-git commit -m "feat: Djangoプロジェクト初期設定・PostgreSQL接続を追加"
+git add config/ manage.py tasks/
+git commit -m "feat: DjangoプロジェクトをPostgreSQL接続で初期化"
 git push origin feature/django-init
 ```
 
@@ -169,28 +267,34 @@ git push origin feature/django-init
 
 ## 午後：ユーザー認証（登録機能）
 
-### 6. なぜ AbstractUser をカスタムするのか
+### 6. ユーザー認証の全体像
 
-Django の標準ユーザーモデルをプロジェクト開始時に拡張しておく。**これは後から変更が非常に困難**なため、最初に設定することが鉄則。
+「認証」とは「あなたは誰か」を確認する仕組み。このプロジェクトでは以下の流れで実装する：
 
-```python
-# NG：後からカスタムモデルを追加しようとすると migrate が壊れる
-# OK：最初から AUTH_USER_MODEL を設定しておく
+```
+[Day 3] ユーザー登録フォーム（新規アカウント作成）
+[Day 4] ログイン・ログアウト（認証済みかどうかの確認）
+         ↓
+         ログイン済みユーザーだけがタスクページにアクセスできる
 ```
 
-### 7. クラスベースビュー（CBV）とは
+### 7. なぜ AbstractUser を最初に設定するのか
 
-Django には2種類のビューがある。
-
-| 種類 | 書き方 | 特徴 |
-|------|--------|------|
-| 関数ベースビュー（FBV） | `def my_view(request):` | シンプルで読みやすい |
-| クラスベースビュー（CBV） | `class MyView(View):` | 共通処理を継承で再利用できる |
-
-CBV を使うと、CRUD の定型処理（`CreateView`、`UpdateView` など）を数行で実装できる。
+Django の標準ユーザーモデルは後から変更することが非常に難しい（マイグレーションが壊れる）。そのため、**プロジェクト開始時点でカスタムユーザーモデルを設定しておく**のが Django の定石。
 
 ```python
-# FBV の場合（フォーム処理を自分で書く）
+# settings.py に追加するだけでカスタムモデルを使うようになる
+AUTH_USER_MODEL = 'accounts.CustomUser'
+```
+
+今は `AbstractUser` をそのまま継承するだけで中身は変えない。将来「プロフィール画像を追加したい」「電話番号を追加したい」という変更が発生したときに、このカスタムモデルを拡張すればよい。
+
+### 8. クラスベースビュー（CBV）とは
+
+Django のビューには2種類ある：
+
+```python
+# 関数ベースビュー（FBV）：シンプルだが定型処理が多い
 def register(request):
     if request.method == 'POST':
         form = UserCreationForm(request.POST)
@@ -201,22 +305,24 @@ def register(request):
         form = UserCreationForm()
     return render(request, 'accounts/register.html', {'form': form})
 
-# CBV の場合（CreateView が同等の処理を自動でやってくれる）
+# クラスベースビュー（CBV）：上と同等の処理を数行で書ける
 class RegisterView(CreateView):
     form_class = CustomUserCreationForm
     template_name = 'accounts/register.html'
-    success_url = reverse_lazy('login')
+    success_url = reverse_lazy('tasks:task_list')
 ```
 
-### 8. ハンズオン（午後）
+CBV は「登録・編集・削除」などよくある処理のパターンが Django に組み込まれており、それを継承するだけで実装できる。このプロジェクトでは CBV を基本として使う。
 
-#### Step 1：ブランチ作成
+### 9. ハンズオン（午後）
+
+#### Step 1：ブランチを作成する
 
 ```bash
 git checkout -b feature/user-auth
 ```
 
-#### Step 2：accounts アプリを作成
+#### Step 2：accounts アプリを作成する
 
 ```bash
 docker compose exec web python manage.py startapp accounts
@@ -228,19 +334,20 @@ docker compose exec web python manage.py startapp accounts
 INSTALLED_APPS = [
     ...
     'accounts',
+    'tasks',
 ]
 ```
 
-#### Step 3：CustomUser モデルを作成
+#### Step 3：CustomUser モデルを作成する
 
-`accounts/models.py`：
+`accounts/models.py` を以下の内容に書き換える：
 
 ```python
 from django.contrib.auth.models import AbstractUser
 
 
 class CustomUser(AbstractUser):
-    pass  # 今は拡張なし。後から項目を追加できるように継承しておく
+    pass  # 今は何も追加しない。後から拡張できるように継承しておく
 ```
 
 `config/settings.py` に追加：
@@ -249,16 +356,16 @@ class CustomUser(AbstractUser):
 AUTH_USER_MODEL = 'accounts.CustomUser'
 ```
 
-マイグレーションを実行：
+マイグレーションを実行（CustomUser のテーブルを作る）：
 
 ```bash
 docker compose exec web python manage.py makemigrations accounts
 docker compose exec web python manage.py migrate
 ```
 
-#### Step 4：登録フォームを作成
+#### Step 4：登録フォームを作成する
 
-`accounts/forms.py`（新規作成）：
+`accounts/forms.py` を新規作成する：
 
 ```python
 from django.contrib.auth.forms import UserCreationForm
@@ -271,11 +378,11 @@ class CustomUserCreationForm(UserCreationForm):
         fields = ('username', 'email', 'password1', 'password2')
 ```
 
-`UserCreationForm` は Django 標準のフォームで、パスワードの一致確認やバリデーションが組み込まれている。
+`UserCreationForm` は Django 標準のフォームで、パスワードの一致確認・強度チェックなどのバリデーションが最初から組み込まれている。
 
-#### Step 5：ビューを作成
+#### Step 5：ビューを作成する
 
-`accounts/views.py`：
+`accounts/views.py` を以下の内容に書き換える：
 
 ```python
 from django.contrib.auth import login
@@ -287,7 +394,7 @@ from .forms import CustomUserCreationForm
 class RegisterView(CreateView):
     form_class = CustomUserCreationForm
     template_name = 'accounts/register.html'
-    success_url = reverse_lazy('tasks:task_list')  # 登録後の遷移先
+    success_url = reverse_lazy('tasks:task_list')
 
     def form_valid(self, form):
         response = super().form_valid(form)
@@ -295,9 +402,9 @@ class RegisterView(CreateView):
         return response
 ```
 
-#### Step 6：URL を設定
+#### Step 6：URL を設定する
 
-`accounts/urls.py`（新規作成）：
+`accounts/urls.py` を新規作成する：
 
 ```python
 from django.urls import path
@@ -310,7 +417,7 @@ urlpatterns = [
 ]
 ```
 
-`config/urls.py` に accounts の URL を追加：
+`config/urls.py` に accounts の URL を追加する：
 
 ```python
 from django.contrib import admin
@@ -322,9 +429,9 @@ urlpatterns = [
 ]
 ```
 
-#### Step 7：テンプレートを作成
+#### Step 7：テンプレートを作成する
 
-`templates/base.html`（新規作成）：
+`templates/` フォルダを作成し、`templates/base.html` を新規作成する：
 
 ```html
 <!DOCTYPE html>
@@ -333,6 +440,7 @@ urlpatterns = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TaskBoard</title>
+    <!-- Bootstrap 5 でスタイルを適用 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
@@ -348,7 +456,7 @@ urlpatterns = [
 </html>
 ```
 
-`templates/accounts/register.html`（新規作成）：
+`templates/accounts/` フォルダを作成し、`templates/accounts/register.html` を新規作成する：
 
 ```html
 {% extends 'base.html' %}
@@ -370,29 +478,25 @@ urlpatterns = [
 {% endblock %}
 ```
 
-`settings.py` にテンプレートの検索パスを追加：
-
-```python
-TEMPLATES = [
-    {
-        ...
-        'DIRS': [BASE_DIR / 'templates'],
-        ...
-    }
-]
-```
-
 #### Step 8：動作確認
 
-1. `http://localhost:8000/accounts/register/` を開く
-2. ユーザー名・メール・パスワードを入力して登録
-3. エラーなく遷移すれば成功
-4. 管理画面（`http://localhost:8000/admin/`）でユーザーが作成されたか確認
-
-管理画面にログインするためのスーパーユーザーを作成：
+管理画面用のスーパーユーザーを作成しておく：
 
 ```bash
 docker compose exec web python manage.py createsuperuser
+```
+
+1. `http://localhost:8000/accounts/register/` を開く
+2. ユーザー名・メール・パスワードを入力して「登録」をクリック
+3. エラーなく遷移すれば成功
+4. `http://localhost:8000/admin/` にスーパーユーザーでログインし、「Users」にアカウントが作られていることを確認する
+
+#### Step 9：PR を作成してマージする
+
+```bash
+git add accounts/ templates/ config/
+git commit -m "feat: ユーザー登録フォームとカスタムUserモデルを実装"
+git push origin feature/user-auth
 ```
 
 ---
@@ -401,8 +505,8 @@ docker compose exec web python manage.py createsuperuser
 
 | エラー | 原因 | 対処 |
 |--------|------|------|
-| `django.db.utils.OperationalError` | DB 接続失敗 | `.env` の DB 設定と docker-compose.yml の environment を確認 |
-| `AUTH_USER_MODEL refers to model not installed` | INSTALLED_APPS に accounts がない | `INSTALLED_APPS` に `'accounts'` を追加 |
+| `django.db.utils.OperationalError` | DB 接続失敗 | `.env` の DB 設定と `docker-compose.yml` の `environment` が一致しているか確認 |
+| `AUTH_USER_MODEL refers to model not installed` | `INSTALLED_APPS` に `accounts` がない | `settings.py` の `INSTALLED_APPS` に `'accounts'` を追加 |
 | `Table doesn't exist` | マイグレーション未実行 | `python manage.py migrate` を実行 |
 | `TemplateDoesNotExist` | テンプレートのパス設定ミス | `TEMPLATES` の `DIRS` に `BASE_DIR / 'templates'` が設定されているか確認 |
 
@@ -414,37 +518,30 @@ docker compose exec web python manage.py createsuperuser
 
 ### いつブランチを切るか
 
-**午前（Django 初期設定）**：Day 1 の `feature/docker-setup` がマージされた後、`main` から `feature/django-init` を切る。
+- **午前**：Day 1 のマージ後の `main` から `feature/django-init` を切る
+- **午後**：`feature/django-init` のマージ後の `main` から `feature/user-auth` を切る
 
-**午後（ユーザー認証）**：Django 初期設定の PR をマージした後、`main` から `feature/user-auth` を切る。
-
-**理由**：「Django の初期設定」と「認証機能の実装」は独立した機能。1ブランチにまとめると PR の差分が大きくなり、「何をしたブランチか」が分かりにくくなる。また、初期設定で `AUTH_USER_MODEL` を設定しているため、マージ順序に依存関係があり、ブランチを分けることでその順序が明確になる。
+**理由**：「Django 初期設定」と「認証機能」は独立した機能。初期設定でマイグレーションを実行するため、この PR がマージされた `main` をベースに認証ブランチを切ることで、`AUTH_USER_MODEL` の設定が確実に含まれた状態で作業できる。
 
 ### いつコミットするか
 
 | タイミング | コミットの意味 | 理由 |
 |-----------|--------------|------|
-| `migrate` が成功し、ウェルカムページが表示されたとき | Django + PostgreSQL 接続完了 | 「DB につながって動く」最小の完成状態。ここでコミットしないと認証実装の途中でDB設定の問題と混在してしまう |
-| `CustomUser` モデルと `makemigrations` が通ったとき | カスタムユーザーモデル追加完了 | モデル変更は migration ファイルとセットでコミットする（migration ファイルは必ずコミットする） |
-| 登録フォームからユーザーが作成できたとき | 登録機能完了 | 動作確認済みの状態を記録する |
+| `migrate` 成功・ウェルカムページ表示 | Django + PostgreSQL 接続完了 | この状態でコミットすると「DB につながって動く」最小の安全地点になる |
+| `makemigrations accounts` + `migrate` 完了 | カスタムユーザーモデル追加 | migration ファイルはモデル変更とセットでコミットする |
+| 登録フォームからユーザーが作成できたとき | 登録機能完成 | 動作確認済みの状態を記録する |
 
 ### コミットメッセージ例
 
 ```bash
-# Django 初期設定
 git commit -m "feat: DjangoプロジェクトをPostgreSQL接続で初期化"
-
-# カスタムユーザーモデル
 git commit -m "feat: AbstractUserを継承したCustomUserモデルを追加"
-
-# 登録機能
 git commit -m "feat: ユーザー登録フォームとビューを実装"
 ```
 
 ### いつ PR をマージするか
 
-**`feature/django-init` のマージ条件**：`http://localhost:8000` でウェルカムページが表示されること。
+- `feature/django-init`：ウェルカムページが表示されること
+- `feature/user-auth`：登録フォームからユーザーが DB に保存されること
 
-**`feature/user-auth` のマージ条件**：登録フォームから新規ユーザーが作成でき、管理画面で確認できること。
-
-**理由**：`feature/django-init` は次の `feature/user-auth` のベースになる。ウェルカムページが表示されない（DB 接続が壊れているなど）状態でマージすると、認証実装のブランチを切った時点から動かない環境で作業することになる。
+**理由**：`feature/django-init` は次の認証ブランチのベース。不安定な状態でマージすると、認証実装の途中で環境の問題に気づいてしまい、どちらのバグか分からなくなる。

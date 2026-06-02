@@ -1,15 +1,53 @@
 # Day 7 — タスク作成・編集・削除・ステータス変更
 
-## この日のゴール
+## このプロジェクト全体の流れ
 
-- タスクの作成・編集・削除が動作する
-- ステータスを「未着手 → 進行中 → 完了」と切り替えられる
+```
+Day 1  → Day 2  → Day 3  → Day 4  → Day 5 → Day 6 → [Day 7] → Day 8 → Day 9 → Day 10
+Docker   paiza    Django   ログイン  タスク   一覧     CRUD      カテゴリ 検索    提出
+環境構築  学習     初期設定  認証      モデル   詳細     ★今日
+```
+
+Day 5〜6 でデータ設計と一覧・詳細画面を作りました。今日は「作成・編集・削除・ステータス変更」を実装し、タスク管理の中核機能を完成させます。
+
+Day 7 の終わりに、Day 5〜7 で作ったタスク機能全体を PR にまとめてマージします。
 
 ---
 
-## 1. ModelForm とは
+## この日のゴール
 
-Model の定義からフォームを自動生成する仕組み。バリデーションも Model の定義に基づいて自動で行われる。
+- タスクを新規作成できる（フォームから入力して保存）
+- タスクを編集できる（内容を変更して保存）
+- タスクを削除できる（確認画面を経由して削除）
+- ステータスを「未着手 → 進行中 → 完了」に切り替えられる
+
+---
+
+## この日の前提
+
+- Day 5〜6 から継続の `feature/task-crud` ブランチで作業する
+- タスクの一覧・詳細が表示される状態であること
+
+---
+
+## 1. CRUD とは何か
+
+CRUD は Web アプリの基本操作の頭文字：
+
+| 操作 | 英語 | Django ビュー | HTTP メソッド |
+|------|------|-------------|-------------|
+| 作成 | Create | `CreateView` | POST |
+| 読み取り | Read | `ListView` / `DetailView` | GET |
+| 更新 | Update | `UpdateView` | POST |
+| 削除 | Delete | `DeleteView` | POST |
+
+読み取りは Day 6 で完成済み。今日は残りの「C・U・D」を実装する。
+
+---
+
+## 2. ModelForm とは
+
+モデルの定義からフォームを自動生成する仕組み。
 
 ```python
 class TaskForm(ModelForm):
@@ -18,11 +56,15 @@ class TaskForm(ModelForm):
         fields = ['title', 'description', 'status', 'due_date', 'category']
 ```
 
-`fields` に書いたフィールドだけがフォームに表示される。`created_by` のような「ユーザーが操作すべきでないフィールド」は含めない。
+- `fields` に書いたフィールドだけがフォームに表示される
+- `created_by` はフォームに含めない（ビュー側でログインユーザーを自動セット）
+- バリデーション（必須チェック、最大文字数チェックなど）は Model の定義に基づいて自動で行われる
 
 ---
 
-## 2. CreateView / UpdateView / DeleteView の仕組み
+## 3. CreateView / UpdateView / DeleteView の仕組み
+
+### CreateView
 
 ```python
 class TaskCreateView(LoginRequiredMixin, CreateView):
@@ -32,42 +74,49 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
     success_url = reverse_lazy('tasks:task_list')
 
     def form_valid(self, form):
-        # フォームが valid なとき、保存前に created_by をセット
+        # フォームが valid（バリデーション通過）のとき、保存前に created_by をセット
         form.instance.created_by = self.request.user
         return super().form_valid(form)
 ```
 
-**`form_valid()` をオーバーライドする理由**：`created_by` はフォームに含めていないので、ビュー側で自動セットする必要がある。
+**処理の流れ**：
+1. GET リクエスト → 空のフォームを表示
+2. POST リクエスト → フォームをバリデーション
+3. バリデーション OK → `form_valid()` で DB に保存 → `success_url` にリダイレクト
+4. バリデーション NG → エラーメッセージ付きでフォームを再表示
+
+### UpdateView
 
 ```python
 class TaskUpdateView(LoginRequiredMixin, UpdateView):
     model = Task
     form_class = TaskForm
-    template_name = 'tasks/task_form.html'
+    template_name = 'tasks/task_form.html'  # CreateView と同じテンプレートを使い回せる
 
     def get_success_url(self):
         return reverse_lazy('tasks:task_detail', kwargs={'pk': self.object.pk})
 
     def get_queryset(self):
-        # 自分のタスクだけ編集可能
-        return Task.objects.filter(created_by=self.request.user)
+        return Task.objects.filter(created_by=self.request.user)  # 自分のタスクだけ編集可
 ```
+
+### DeleteView
 
 ```python
 class TaskDeleteView(LoginRequiredMixin, DeleteView):
     model = Task
-    template_name = 'tasks/task_confirm_delete.html'
+    template_name = 'tasks/task_confirm_delete.html'  # 確認画面用のテンプレート
     success_url = reverse_lazy('tasks:task_list')
 
     def get_queryset(self):
-        return Task.objects.filter(created_by=self.request.user)
+        return Task.objects.filter(created_by=self.request.user)  # 自分のタスクだけ削除可
 ```
 
 ---
 
-## 3. ステータス変更：カスタムビュー
+## 4. ステータス変更：独自ビューの実装
 
-CBV の汎用ビューに当てはまらない操作は `View` を直接継承して書く。
+「ステータスをセレクトボックスで変更する」は CreateView / UpdateView などの汎用ビューに当てはまらない。`View` を直接継承して書く。
 
 ```python
 from django.views import View
@@ -83,15 +132,15 @@ class TaskStatusUpdateView(LoginRequiredMixin, View):
         return redirect('tasks:task_detail', pk=pk)
 ```
 
-**POST のみ受け付ける理由**：GET でステータスを変更できると、リンクを埋め込んだメールやページを踏むだけで変更されるリスクがある（CSRF 対策の観点）。
+**なぜ POST だけ受け付けるのか**：GET（リンクを踏むだけ）でステータスを変更できると、悪意のあるサイトに `<img src="http://localhost:8000/tasks/1/status/?status=done">` のようなタグを置くだけでステータスを書き換えられてしまう（CSRF 攻撃）。
 
 ---
 
-## 4. ハンズオン
+## 5. ハンズオン
 
-### Step 1：フォームを作成
+### Step 1：フォームを作成する
 
-`tasks/forms.py`（新規作成）：
+`tasks/forms.py` を新規作成する：
 
 ```python
 from django import forms
@@ -103,16 +152,14 @@ class TaskForm(forms.ModelForm):
         model = Task
         fields = ['title', 'description', 'status', 'due_date', 'category', 'assigned_to']
         widgets = {
-            'due_date': forms.DateInput(attrs={'type': 'date'}),
+            'due_date': forms.DateInput(attrs={'type': 'date'}),   # ブラウザの日付ピッカーを使う
             'description': forms.Textarea(attrs={'rows': 4}),
         }
 ```
 
-`widgets` でフォームの HTML 属性を制御できる。`type='date'` でブラウザのネイティブな日付ピッカーが使えるようになる。
+### Step 2：views.py にビューを追加する
 
-### Step 2：ビューを追加
-
-`tasks/views.py` に追加：
+`tasks/views.py` の末尾に追加する：
 
 ```python
 from django.urls import reverse_lazy
@@ -175,9 +222,9 @@ class TaskStatusUpdateView(LoginRequiredMixin, View):
         return redirect('tasks:task_detail', pk=pk)
 ```
 
-### Step 3：URL を追加
+### Step 3：URL を追加する
 
-`tasks/urls.py` を更新：
+`tasks/urls.py` を更新する：
 
 ```python
 from django.urls import path
@@ -199,7 +246,7 @@ urlpatterns = [
 ]
 ```
 
-### Step 4：テンプレートを作成
+### Step 4：テンプレートを作成する
 
 `templates/tasks/task_form.html`（作成・編集で共用）：
 
@@ -238,9 +285,9 @@ urlpatterns = [
 {% endblock %}
 ```
 
-### Step 5：詳細ページにステータス変更フォームを追加
+### Step 5：詳細ページにステータス変更フォームを追加する
 
-`templates/tasks/task_detail.html` の `card-body` 内に追加：
+`templates/tasks/task_detail.html` の `card-body` の `<dl>` 内に追加する：
 
 ```html
 <dt class="col-sm-3">ステータス変更</dt>
@@ -261,17 +308,35 @@ urlpatterns = [
 
 ### Step 6：動作確認
 
-1. 一覧ページの「+ 新規タスク」から作成 → 一覧に戻り新しいタスクが表示される
-2. 詳細ページの「編集」からタイトル変更 → 詳細ページに戻り変更が反映される
-3. 「削除」から確認画面 → 削除実行 → 一覧から消える
-4. ステータスをセレクトボックスで変更 → バッジの色が変わる
+1. `http://localhost:8000/tasks/create/` → フォームが表示されタスクを作成できる
+2. 作成後に一覧ページにリダイレクトされ、新しいタスクが表示される
+3. 詳細ページの「編集」からタイトルを変更 → 詳細ページに戻り変更が反映される
+4. 「削除」から確認画面 → 削除実行 → 一覧からタスクが消える
+5. ステータスをセレクトボックスで変更 → バッジの色が変わる
 
-### Step 7：PR 作成・マージ
+### Step 7：PR を作成してマージする
 
 ```bash
-git add tasks/
-git commit -m "feat: タスクCRUD・ステータス変更を実装"
+git add tasks/ templates/
+git commit -m "feat: タスクCRUDとステータス変更機能を実装"
 git push origin feature/task-crud
+```
+
+PR の説明に Day 5〜7 の変更内容をまとめて記載する：
+
+```markdown
+## 概要
+タスク管理機能（CRUD・ステータス管理）を実装しました。
+
+## 変更内容
+- Task・Category モデルを追加（Day 5）
+- タスク一覧・詳細ビューを実装（Day 6）
+- タスク作成・編集・削除・ステータス変更を実装（Day 7）
+
+## 確認方法
+1. ログイン後に /tasks/create/ からタスクを作成
+2. 一覧に表示されることを確認
+3. 編集・削除・ステータス変更が動作することを確認
 ```
 
 ---
@@ -281,9 +346,9 @@ git push origin feature/task-crud
 | エラー | 原因 | 対処 |
 |--------|------|------|
 | `ImproperlyConfigured: No URL to redirect to` | `success_url` が未設定 | `success_url` または `get_success_url()` を実装する |
-| フォーム送信後に同じページに戻る | バリデーションエラー | テンプレートに `{{ form.errors }}` を追加してエラー内容を確認 |
-| カテゴリのセレクトボックスに全ユーザーのカテゴリが出る | `get_form()` の絞り込みが未実装 | `form.fields['category'].queryset` を設定する |
-| ステータス変更が効かない | form の `name` 属性が `status` でない | HTML の `name="status"` を確認 |
+| フォーム送信後に同じページに戻る | バリデーションエラー | テンプレートに `{{ form.errors }}` を追加してエラー内容を確認する |
+| カテゴリのセレクトボックスに全ユーザーのカテゴリが表示される | `get_form()` の絞り込みが未実装 | `form.fields['category'].queryset` を設定する |
+| ステータス変更が効かない | `select` の `name` 属性が `status` でない | HTML の `name="status"` と `request.POST.get('status')` が一致しているか確認する |
 
 ---
 
@@ -293,17 +358,15 @@ git push origin feature/task-crud
 
 ### いつブランチを切るか
 
-**タイミング**：Day 5 から継続の `feature/task-crud` ブランチを使う。新しいブランチは切らない。
-
-**理由**：タスクの CRUD は一覧・詳細・作成・編集・削除・ステータス変更がすべて揃って初めて「タスク管理機能」として完成する。途中でブランチを分割すると「機能が半完成の状態の PR」が複数生まれてしまう。
+Day 5 から継続の `feature/task-crud` ブランチを使う。
 
 ### いつコミットするか
 
 | タイミング | コミットの意味 | 理由 |
 |-----------|--------------|------|
-| 作成フォームから保存できたとき | CreateView 完成 | フォーム → バリデーション → DB 保存 → リダイレクトの一連が動いた状態 |
-| 編集・削除が動いたとき | UpdateView・DeleteView 完成 | CRUD の「U・D」が完成した状態。まとめてコミットしてもよい |
-| ステータス変更が動いたとき | ステータス管理完成 | カスタムビューの動作確認済み。CRUD 完成の最後のピース |
+| 作成フォームから保存できたとき | CreateView 完成 | フォーム表示→バリデーション→保存→リダイレクトの一連が動いた状態 |
+| 編集・削除が動いたとき | UpdateView・DeleteView 完成 | CRUD の「U・D」が完成した状態 |
+| ステータス変更が動いたとき | ステータス管理完成 | Day 5〜7 の全機能が揃った状態 |
 
 ### コミットメッセージ例
 
@@ -311,13 +374,10 @@ git push origin feature/task-crud
 git commit -m "feat: タスク作成フォームとCreateViewを実装"
 git commit -m "feat: タスク編集・削除ビューを実装"
 git commit -m "feat: タスクステータス変更機能を追加"
-
-# Day 6 〜 7 のすべてをまとめてマージする場合の最終コミット後の PR タイトル例
-# → "feat: タスク管理機能（CRUD・ステータス管理）を実装"
 ```
 
 ### いつ PR をマージするか
 
 **条件**：タスクの作成・編集・削除・ステータス変更がすべてブラウザで動作確認済みであること。
 
-**理由**：Day 5〜7 の3日分がこの PR に集まっている。ここでマージすると「タスク管理機能」が main に入り、Day 8 のカテゴリ機能の実装ベースとして安定した状態が得られる。中途半端な状態でマージすると「カテゴリ追加しようとしたらタスク作成が壊れていた」という状況が起きる。
+**理由**：Day 8 はカテゴリ機能を追加するが、タスクフォームにカテゴリ選択を組み込む必要がある。CRUD が完成した安定した `main` をベースにしないと、カテゴリの実装中に CRUD の問題と混在してしまう。
