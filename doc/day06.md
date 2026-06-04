@@ -154,9 +154,11 @@ Day 5 から継続の `feature/task-crud` ブランチで作業する。
 git checkout feature/task-crud
 ```
 
-### Step 2：tasks/urls.py を作成する
+### Step 2：tasks/urls.py を更新する
 
-`tasks/urls.py` を新規作成する：
+> **注意**：`config/urls.py` への `tasks/` パスの追加は Day 4 で実施済みのため、本 Step では不要。
+
+`tasks/urls.py` を以下の内容に書き換える（Day 4 のスタブに `task_detail` を追加）：
 
 ```python
 from django.urls import path
@@ -170,7 +172,7 @@ urlpatterns = [
 ]
 ```
 
-`config/urls.py` に tasks の URL を追加する：
+`config/urls.py` は Day 4 で設定済みのため変更不要。念のため以下の状態になっていることを確認する：
 
 ```python
 from django.contrib import admin
@@ -179,7 +181,7 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
-    path('tasks/', include('tasks.urls')),  # ← 追加
+    path('tasks/', include('tasks.urls')),  # Day 4 で追加済み。重複追加不要
 ]
 ```
 

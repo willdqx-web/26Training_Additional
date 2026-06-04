@@ -163,7 +163,59 @@ urlpatterns = [
 ]
 ```
 
-### Step 3：settings.py にリダイレクト先を追加する
+### Step 3：tasks スタブビューを作成する
+
+`LoginRequiredMixin` の動作確認のため、最小限のビュー・URL・テンプレートを用意する。
+
+`tasks/views.py` を以下の内容に書き換える：
+
+```python
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import TemplateView
+
+
+class TaskListView(LoginRequiredMixin, TemplateView):
+    template_name = 'tasks/task_list.html'
+```
+
+`tasks/urls.py` を新規作成する：
+
+```python
+from django.urls import path
+from .views import TaskListView
+
+app_name = 'tasks'
+
+urlpatterns = [
+    path('', TaskListView.as_view(), name='task_list'),
+]
+```
+
+`config/urls.py` に tasks の URL を追加する：
+
+```python
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('accounts/', include('accounts.urls')),
+    path('tasks/', include('tasks.urls')),   # 追加
+]
+```
+
+`templates/tasks/task_list.html` を新規作成する：
+
+```html
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>タスク一覧（準備中）</h2>
+<p>Day 6 で本実装します。</p>
+{% endblock %}
+```
+
+### Step 4：settings.py にリダイレクト先を追加する
 
 `config/settings.py` の末尾に追記：
 
@@ -173,7 +225,7 @@ LOGIN_REDIRECT_URL = '/tasks/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 ```
 
-### Step 4：ログインテンプレートを作成する
+### Step 5：ログインテンプレートを作成する
 
 `templates/accounts/login.html` を新規作成：
 
@@ -197,7 +249,7 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 {% endblock %}
 ```
 
-### Step 5：base.html のナビバーを更新する
+### Step 6：base.html のナビバーを更新する
 
 `templates/base.html` の `<nav>` 部分を以下に置き換える：
 
@@ -221,20 +273,20 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 </nav>
 ```
 
-### Step 6：動作確認
+### Step 7：動作確認
 
 以下の順番でブラウザ確認する：
 
 1. `http://localhost:8000/accounts/login/` → ログインフォームが表示される
-2. Day 3 で作成したユーザーでログイン → `/tasks/` にリダイレクト（まだ 404 だが問題なし）
+2. Day 3 で作成したユーザーでログイン → `/tasks/` に「タスク一覧（準備中）」ページが表示される
 3. ナビバーにユーザー名が表示されている
 4. ログアウトボタンを押す → ログインページにリダイレクトされる
-5. ログインせずに `http://localhost:8000/tasks/` にアクセス → ログインページにリダイレクトされる
+5. ログインせずに `http://localhost:8000/tasks/` にアクセス → `http://localhost:8000/accounts/login/?next=/tasks/` にリダイレクトされる
 
-### Step 7：PR を作成してマージする
+### Step 8：PR を作成してマージする
 
 ```bash
-git add accounts/ templates/ config/settings.py
+git add accounts/ templates/ tasks/ config/
 git commit -m "feat: ログイン・ログアウト・アクセス制御を実装"
 git push origin feature/user-auth
 ```
