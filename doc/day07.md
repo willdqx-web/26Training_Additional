@@ -285,9 +285,30 @@ urlpatterns = [
 {% endblock %}
 ```
 
-### Step 5：詳細ページにステータス変更フォームを追加する
+また、`templates/tasks/task_list.html` のヘッダ部分を以下に書き換えて「+ 新規タスク」ボタンを追加する：
 
-`templates/tasks/task_detail.html` の `card-body` の `<dl>` 内に追加する：
+```html
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>タスク一覧</h2>
+    <a href="{% url 'tasks:task_create' %}" class="btn btn-primary">+ 新規タスク</a>
+</div>
+```
+
+### Step 5：詳細ページに編集・削除ボタンとステータス変更フォームを追加する
+
+`templates/tasks/task_detail.html` の `card-header` を以下に書き換えて編集・削除ボタンを追加する：
+
+```html
+<div class="card-header d-flex justify-content-between">
+    <h3>{{ task.title }}</h3>
+    <div>
+        <a href="{% url 'tasks:task_update' task.pk %}" class="btn btn-sm btn-outline-secondary">編集</a>
+        <a href="{% url 'tasks:task_delete' task.pk %}" class="btn btn-sm btn-outline-danger">削除</a>
+    </div>
+</div>
+```
+
+続いて、同テンプレートの `card-body` の `<dl>` 内に追加する：
 
 ```html
 <dt class="col-sm-3">ステータス変更</dt>

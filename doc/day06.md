@@ -222,7 +222,7 @@ class TaskDetailView(LoginRequiredMixin, DetailView):
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>タスク一覧</h2>
-    <a href="{% url 'tasks:task_create' %}" class="btn btn-primary">+ 新規タスク</a>
+    {# + 新規タスク ボタンは Day 7 で追加 #}
 </div>
 
 {% if tasks %}
@@ -271,12 +271,9 @@ class TaskDetailView(LoginRequiredMixin, DetailView):
 
 {% block content %}
 <div class="card">
-    <div class="card-header d-flex justify-content-between">
+    <div class="card-header">
         <h3>{{ task.title }}</h3>
-        <div>
-            <a href="{% url 'tasks:task_update' task.pk %}" class="btn btn-sm btn-outline-secondary">編集</a>
-            <a href="{% url 'tasks:task_delete' task.pk %}" class="btn btn-sm btn-outline-danger">削除</a>
-        </div>
+        {# 編集・削除ボタンは Day 7 で追加 #}
     </div>
     <div class="card-body">
         <dl class="row">
@@ -304,8 +301,7 @@ class TaskDetailView(LoginRequiredMixin, DetailView):
 ### Step 6：動作確認
 
 1. `http://localhost:8000/tasks/` を開く
-   - 管理画面から作成したタスクが一覧に表示される
-   - まだ「+ 新規タスク」のリンクは 404 になる（Day 7 で実装するため今は正常）
+   - 管理画面から作成したタスクが一覧に表示される（「+ 新規タスク」ボタンは Day 7 で追加）
 2. タスクのタイトルをクリック → 詳細ページに遷移する
 3. ログアウト後に `http://localhost:8000/tasks/` にアクセス → ログインページにリダイレクトされる
 
