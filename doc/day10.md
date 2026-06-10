@@ -326,11 +326,32 @@ DB_HOST=db
 DB_PORT=5432
 ```
 
-#### Step 8：コミットしてマージする
+#### Step 8：config/urls.py にルートURLを追加する
+
+`http://localhost:8000`（ルート `/`）にアクセスしたとき 404 にならないよう、タスク一覧へのリダイレクトを追加する。
+
+`config/urls.py` を以下の内容に更新する：
+
+```python
+from django.contrib import admin
+from django.urls import path, include
+from django.views.generic import RedirectView
+
+urlpatterns = [
+    path('', RedirectView.as_view(url='/tasks/', permanent=False)),
+    path('admin/', admin.site.urls),
+    path('accounts/', include('accounts.urls')),
+    path('tasks/', include('tasks.urls')),
+]
+```
+
+ブラウザで `http://localhost:8000` を開き、ログインページまたはタスク一覧にリダイレクトされることを確認する。
+
+#### Step 9：コミットしてマージする
 
 ```bash
 git add .
-git commit -m "docs: READMEとテストを追加、flake8警告を解消"
+git commit -m "docs: READMEとテストを追加、flake8警告を解消、ルートURLを追加"
 git push origin feature/readme-tests
 ```
 
@@ -346,7 +367,7 @@ git push origin feature/readme-tests
 
 ### ハンズオン（午後）
 
-#### Step 9：不要ブランチを削除する
+#### Step 10：不要ブランチを削除する
 
 ```bash
 # マージ済みのローカルブランチを確認
@@ -362,7 +383,7 @@ git branch -d feature/search-filter
 git branch -d feature/readme-tests
 ```
 
-#### Step 10：ゼロ起動テストを実行する
+#### Step 11：ゼロ起動テストを実行する
 
 ```bash
 # 別ディレクトリにクローン（/tmp は Windows だと C:\temp など）
@@ -378,6 +399,7 @@ docker compose exec web python manage.py createsuperuser
 ```
 
 ブラウザで `http://localhost:8000` を開いて動作確認する。
+（ログインページまたはタスク一覧が表示されれば成功。）
 
 完了後はクリーンアップする：
 
@@ -387,7 +409,7 @@ cd ..
 rm -rf taskboard-test   # Windowsは del /s /q taskboard-test
 ```
 
-#### Step 11：最終チェックリスト
+#### Step 12：最終チェックリスト
 
 提出前にすべての項目を確認する。
 
